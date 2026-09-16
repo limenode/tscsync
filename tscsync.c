@@ -31,6 +31,17 @@
 static int ncpu;
 static double tsc_hz = 3.792e9;
 
+/* TSC rate for the "seconds" display column only: rdtsc vs CLOCK_MONOTONIC over 50 ms.
+   No external commands, works in an initramfs. Accuracy ~1e-5, plenty for display. */
+static void calibrate_tsc_hz(void){
+    struct timespec a,b; unsigned aux;
+    clock_gettime(CLOCK_MONOTONIC,&a); uint64_t t0=__rdtscp(&aux);
+    usleep(50000);
+    uint64_t t1=__rdtscp(&aux); clock_gettime(CLOCK_MONOTONIC,&b);
+    double dt=(b.tv_sec-a.tv_sec)+(b.tv_nsec-a.tv_nsec)*1e-9;
+    if (dt>0.01) tsc_hz=(t1-t0)/dt;
+}
+
 static void pin(int cpu){
     cpu_set_t s; CPU_ZERO(&s); CPU_SET(cpu,&s);
     if (sched_setaffinity(0,sizeof s,&s)) { perror("sched_setaffinity"); exit(1); }
@@ -120,8 +131,7 @@ int main(int argc,char **argv){
         fprintf(stderr,"usage: %s --measure | --apply [--quiet]\n",argv[0]); return 2;
     }
     ncpu = sysconf(_SC_NPROCESSORS_ONLN);
-    FILE *f = popen("journalctl -k -b --no-pager 2>/dev/null | grep -m1 -o 'Detected [0-9.]* MHz processor'","r");
-    if (f){ double mhz; if (fscanf(f,"Detected %lf",&mhz)==1) tsc_hz=mhz*1e6; pclose(f); }
+    calibrate_tsc_hz();
     int ref = choose_ref();
 
     if (!quiet){ printf("== before (ref = cpu%d, tolerance %lld cycles)\n",ref,TOLERANCE); }

@@ -8,6 +8,8 @@ ConditionPathExists=/usr/local/sbin/tscsync
 
 [Service]
 Type=oneshot
+# Stay "active (exited)" so later units pulling in sysinit.target don't re-run us.
+RemainAfterExit=yes
 ExecStartPre=-/sbin/modprobe msr
 ExecStart=/usr/local/sbin/tscsync --apply --quiet
 # Never run on an unsynced TSC: if the sync fails for any reason, put the kernel back on HPET.
