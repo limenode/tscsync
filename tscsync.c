@@ -25,8 +25,9 @@
 
 #define MSR_IA32_TSC 0x10
 #define ROUNDS 401
-#define TOLERANCE 1000LL     /* cycles (~260 ns at 3.8 GHz) */
-#define MAX_PASSES 6
+#define TARGET 200LL         /* cycles: keep correcting until within this (~50 ns) ... */
+#define TOLERANCE 1000LL     /* ... but only report failure above this (~260 ns) */
+#define MAX_PASSES 10        /* write jitter is ~100-300 cycles, so a few passes may be needed */
 
 static int ncpu;
 static double tsc_hz = 3.792e9;
@@ -134,7 +135,7 @@ int main(int argc,char **argv){
     calibrate_tsc_hz();
     int ref = choose_ref();
 
-    if (!quiet){ printf("== before (ref = cpu%d, tolerance %lld cycles)\n",ref,TOLERANCE); }
+    if (!quiet){ printf("== before (ref = cpu%d, target %lld / tolerance %lld cycles)\n",ref,TARGET,TOLERANCE); }
     int bad = quiet ? 0 : report(ref);
     if (!apply) return bad?1:0;
 
@@ -142,16 +143,20 @@ int main(int argc,char **argv){
     for (int c=0;c<ncpu;c++){
         if (c==ref) continue;
         long long comp = 0;
-        for (int pass=1; pass<=MAX_PASSES; pass++){
-            long long off = measure(ref,c);
-            if (llabs(off)<=TOLERANCE){ if(!quiet||pass>1) printf("cpu%d: in sync (%lld cycles) after %d pass(es)\n",c,off,pass-1); break; }
+        long long off = measure(ref,c);
+        if (llabs(off)<=TARGET) continue;               /* already good, don't touch */
+        int pass;
+        for (pass=1; pass<=MAX_PASSES; pass++){
             long long delta = -off + comp;
             printf("cpu%d pass %d: off=%lld  writing TSC += %lld (comp %lld)\n",c,pass,off,delta,comp);
             if (write_tsc_delta(c,delta)) return 1;
             long long off2 = measure(ref,c);
-            comp -= off2;
-            if (pass==MAX_PASSES){ printf("cpu%d: giving up, residual %lld cycles\n",c,off2); return 1; }
+            comp -= off2;                                /* learn the write latency from the residual */
+            off = off2;
+            if (llabs(off)<=TARGET) break;
         }
+        if (llabs(off)>TOLERANCE){ printf("cpu%d: FAILED, residual %lld cycles after %d passes\n",c,off,pass); return 1; }
+        printf("cpu%d: in sync (%lld cycles) after %d pass(es)\n",c,off,pass>MAX_PASSES?MAX_PASSES:pass);
     }
     if (!quiet){ printf("\n== after\n"); return report(ref)?1:0; }
     for (int c=0;c<ncpu;c++) if (llabs(measure(ref,c))>TOLERANCE) return 1;
