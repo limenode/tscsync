@@ -143,8 +143,9 @@ on. Backups of `/boot/loader/entries/*.conf` and `/etc/default/grub` go to
 ## Not covered
 
 - **The moment after resume**: between wake-up and `tscsync-resume.service`
-  running, any core(s) the firmware left behind are still out of sync, so a
-  clock step can slip through in that window.
+  running, any core(s) the firmware left behind are still out of sync.
+  The kernel's timekeeping and any program reading the TSC in this time-window
+  will still see the TSC desync, so the clock can jump. NTP corrects this later.
 - **Firmware fix**: none known. A Legion Pro 5 owner reported the warp
   persisting after a BIOS update. Lenovo does not publish these through LVFS.
 
